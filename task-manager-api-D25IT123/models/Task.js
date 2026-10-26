@@ -1,13 +1,16 @@
 const mongoose = require("mongoose");
+
 const taskSchema = new mongoose.Schema(
   {
     title: {
       type: String,
-      required: true,
+      required: [true, "Task title is required"],
+      trim: true,
     },
     description: {
       type: String,
       default: "",
+      trim: true,
     },
     completed: {
       type: Boolean,
@@ -15,7 +18,10 @@ const taskSchema = new mongoose.Schema(
     },
     priority: {
       type: String,
-      enum: ["low", "medium", "high"],
+      enum: {
+        values: ["low", "medium", "high"],
+        message: "{VALUE} is not a valid priority. Must be low, medium, or high",
+      },
       default: "medium",
     },
     createdAt: {
@@ -27,4 +33,12 @@ const taskSchema = new mongoose.Schema(
     versionKey: false,
   }
 );
+
+// Pre-save hook to automatically trim whitespace from the title field (Practical 5 Supplementary)
+taskSchema.pre("save", function () {
+  if (this.title && typeof this.title === "string") {
+    this.title = this.title.trim();
+  }
+});
+
 module.exports = mongoose.model("Task", taskSchema);
