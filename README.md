@@ -140,3 +140,35 @@ The React development server will start at **`http://localhost:5173`**.
 - Dark & Light theme tokens with glassmorphism sticky navbar.
 - Accessible keyboard support for modals (`Esc` to dismiss).
 - Fluid animations for toasts, modals, and card interactions.
+
+
+## Practical 9: In-Memory Caching and Query Optimization
+
+### Aim
+To implement in-memory caching and optimize API response time using NodeCache.
+
+### Implementation
+- Installed the `node-cache` package.
+- Created a shared cache module in `utils/cache.js`.
+- Configured a default cache expiration time (TTL) of 60 seconds.
+- Implemented caching for the GET `/tasks` endpoint using the key `all_tasks`.
+- Added cache invalidation after successful POST, PUT, and DELETE operations.
+- Verified cache hits and misses using Thunder Client.
+
+### Testing
+The API returned `200 OK` when retrieving tasks.
+
+- **Cache MISS:** Tasks are fetched from MongoDB and stored in the cache.
+- **Cache HIT:** Tasks are returned from in-memory storage.
+- **Cache invalidation:** The cached task list is cleared after a successful task modification.
+
+### Response-Time Comparison
+Record the actual response times observed in Thunder Client.
+
+| Test | Request 1 | Request 2 | Request 3 | Average |
+|---|---:|---:|---:|---:|
+| Without caching | ___ ms | ___ ms | ___ ms | ___ ms |
+| With caching | ___ ms | ___ ms | ___ ms | ___ ms |
+
+### Conclusion
+In-memory caching was implemented successfully using NodeCache. Cache hits return previously stored task data without querying MongoDB again, while cache invalidation keeps the cached task list updated after successful task modifications. The 60-second TTL allows cached entries to expire automatically.

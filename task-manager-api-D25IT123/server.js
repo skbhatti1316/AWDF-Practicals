@@ -12,6 +12,7 @@ const { body, validationResult } = require("express-validator");
 
 const Task = require("./models/Task");
 const User = require("./models/User");
+const cache = require("./utils/cache");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -20,26 +21,24 @@ const PORT = process.env.PORT || 5000;
 // 1. GLOBAL MIDDLEWARE PIPELINE
 // ==========================================
 
-// Enable CORS for frontend-backend communication (Practical 6 Step 1)
 app.use(cors());
-
-// Parse JSON request bodies (Practical 4 Step 2)
 app.use(express.json());
 
-// Request logging middleware - logs method, URL, and timestamp (Practical 4 Step 3)
+// Request logging middleware
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${req.method} ${req.originalUrl}`);
   next();
 });
 
-// Middleware to reject POST/PUT requests missing Content-Type: application/json (Practical 4 Supplementary 1)
+// Validate JSON content type for requests with a body
 const requireJsonContentType = (req, res, next) => {
   if (["POST", "PUT", "PATCH"].includes(req.method)) {
-    // If request has content or headers indicate a payload
     const contentLength = req.headers["content-length"];
+
     if (contentLength && contentLength !== "0") {
       const contentType = req.headers["content-type"];
+
       if (!contentType || !contentType.toLowerCase().includes("application/json")) {
         return res.status(400).json({
           error: "Invalid Content-Type",
@@ -48,40 +47,48 @@ const requireJsonContentType = (req, res, next) => {
       }
     }
   }
+
   next();
 };
+
 app.use(requireJsonContentType);
 
-// Route-specific middleware: Validate MongoDB ObjectId format (Practical 4 Supplementary 2)
+// Validate MongoDB ObjectId
 const validateTaskId = (req, res, next) => {
   const { id } = req.params;
+
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return res.status(400).json({
       error: "Invalid Task ID",
       message: `The provided id '${id}' is not a valid 24-character hexadecimal ObjectId.`,
     });
   }
+
   next();
 };
 
-// Optional JWT authentication: parses token if present, otherwise allows guest access (Practical 6 & 7)
+// Optional JWT authentication
 const optionalAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;
+
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const token = authHeader.split(" ")[1];
     const secret = process.env.JWT_SECRET || "default_jwt_secret";
+
     try {
       req.user = jwt.verify(token, secret);
     } catch {
-      // Invalid token, but proceed as unauthenticated request
+      // Invalid token: continue as unauthenticated
     }
   }
+
   next();
 };
 
-// Strict JWT authentication middleware for protected routes (Practical 7)
+// Strict JWT authentication
 const requireAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;
+
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({
       error: "Unauthorized",
@@ -99,6 +106,7 @@ const requireAuth = (req, res, next) => {
         message: "Invalid or expired authentication token.",
       });
     }
+
     req.user = decoded;
     next();
   });
@@ -107,7 +115,9 @@ const requireAuth = (req, res, next) => {
 // ==========================================
 // 2. MONGODB CONNECTION
 // ==========================================
-const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/taskmanager";
+
+const MONGO_URI =
+  process.env.MONGO_URI || "mongodb://127.0.0.1:27017/taskmanager";
 
 mongoose
   .connect(MONGO_URI)
@@ -122,7 +132,7 @@ mongoose
 // 3. API ROUTES
 // ==========================================
 
-// Base Health Check
+// Base health check
 app.get("/", (req, res) => {
   res.status(200).json({
     status: "ok",
@@ -137,33 +147,47 @@ app.get("/", (req, res) => {
   });
 });
 
-// GET /tasks - Retrieve all tasks (Practical 4, 5, 6)
+// GET /tasks - Retrieve all tasks with caching
 app.get("/tasks", optionalAuth, async (req, res, next) => {
   try {
+    const cachedTasks = cache.get("all_tasks");
+
+    if (cachedTasks !== undefined) {
+      console.log("Cache HIT: Returning tasks from memory");
+      return res.status(200).json(cachedTasks);
+    }
+
+    console.log("Cache MISS: Fetching tasks from MongoDB");
+
     const tasks = await Task.find().sort({ createdAt: -1 });
-    res.status(200).json(tasks);
+
+    cache.set("all_tasks", tasks);
+
+    return res.status(200).json(tasks);
   } catch (error) {
     next(error);
   }
 });
 
-// GET /tasks/:id - Retrieve single task with 404 handling (Practical 5 Supplementary 3)
+// GET /tasks/:id - Retrieve a single task
 app.get("/tasks/:id", validateTaskId, async (req, res, next) => {
   try {
     const task = await Task.findById(req.params.id);
+
     if (!task) {
       return res.status(404).json({
         error: "Not Found",
         message: `Task not found with ID: ${req.params.id}`,
       });
     }
-    res.status(200).json(task);
+
+    return res.status(200).json(task);
   } catch (error) {
     next(error);
   }
 });
 
-// POST /tasks - Create a new task (Practical 4, 5, 6)
+// POST /tasks - Create a new task
 app.post("/tasks", optionalAuth, async (req, res, next) => {
   try {
     const { title, description, completed, priority } = req.body;
@@ -179,11 +203,17 @@ app.post("/tasks", optionalAuth, async (req, res, next) => {
       title: title.trim(),
       description: description ? description.trim() : "",
       completed: typeof completed === "boolean" ? completed : false,
-      priority: ["low", "medium", "high"].includes(priority) ? priority : "medium",
+      priority: ["low", "medium", "high"].includes(priority)
+        ? priority
+        : "medium",
     });
 
     const savedTask = await newTask.save();
-    res.status(201).json({
+
+    // Invalidate cache after successful creation
+    cache.del("all_tasks");
+
+    return res.status(201).json({
       message: "Task Added Successfully",
       task: savedTask,
     });
@@ -192,13 +222,30 @@ app.post("/tasks", optionalAuth, async (req, res, next) => {
   }
 });
 
-// PUT /tasks/:id - Update existing task (Practical 4, 5, 6)
+// PUT /tasks/:id - Update an existing task
 app.put("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) => {
   try {
     const updateData = {};
-    if (req.body.title !== undefined) updateData.title = req.body.title.trim();
-    if (req.body.description !== undefined) updateData.description = req.body.description.trim();
-    if (req.body.completed !== undefined) updateData.completed = Boolean(req.body.completed);
+
+    if (req.body.title !== undefined) {
+      if (typeof req.body.title !== "string" || !req.body.title.trim()) {
+        return res.status(400).json({
+          error: "ValidationError",
+          message: "Task title must be a non-empty string.",
+        });
+      }
+
+      updateData.title = req.body.title.trim();
+    }
+
+    if (req.body.description !== undefined) {
+      updateData.description = req.body.description.trim();
+    }
+
+    if (req.body.completed !== undefined) {
+      updateData.completed = Boolean(req.body.completed);
+    }
+
     if (req.body.priority !== undefined) {
       if (!["low", "medium", "high"].includes(req.body.priority)) {
         return res.status(400).json({
@@ -206,6 +253,7 @@ app.put("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) => {
           message: "Priority must be one of: 'low', 'medium', 'high'",
         });
       }
+
       updateData.priority = req.body.priority;
     }
 
@@ -225,7 +273,10 @@ app.put("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) => {
       });
     }
 
-    res.status(200).json({
+    // Invalidate cache after successful update
+    cache.del("all_tasks");
+
+    return res.status(200).json({
       message: "Task Updated Successfully",
       task: updatedTask,
     });
@@ -234,7 +285,7 @@ app.put("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) => {
   }
 });
 
-// DELETE /tasks/:id - Delete a task (Practical 4, 5, 6)
+// DELETE /tasks/:id - Delete a task
 app.delete("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) => {
   try {
     const deletedTask = await Task.findByIdAndDelete(req.params.id);
@@ -246,7 +297,10 @@ app.delete("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) =>
       });
     }
 
-    res.status(200).json({
+    // Invalidate cache after successful deletion
+    cache.del("all_tasks");
+
+    return res.status(200).json({
       message: "Task Deleted Successfully",
       task: deletedTask,
     });
@@ -256,17 +310,24 @@ app.delete("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) =>
 });
 
 // ==========================================
-// 4. AUTHENTICATION ROUTES (Practical 7)
+// 4. AUTHENTICATION ROUTES
 // ==========================================
 
 const registerValidation = [
   body("name").trim().notEmpty().withMessage("Name is required"),
-  body("email").trim().isEmail().withMessage("Enter a valid email address").normalizeEmail(),
-  body("password").isLength({ min: 8 }).withMessage("Password must be at least 8 characters long"),
+  body("email")
+    .trim()
+    .isEmail()
+    .withMessage("Enter a valid email address")
+    .normalizeEmail(),
+  body("password")
+    .isLength({ min: 8 })
+    .withMessage("Password must be at least 8 characters long"),
 ];
 
 app.post("/register", registerValidation, async (req, res, next) => {
   const errors = validationResult(req);
+
   if (!errors.isEmpty()) {
     return res.status(400).json({
       error: "ValidationError",
@@ -287,6 +348,7 @@ app.post("/register", registerValidation, async (req, res, next) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+
     const newUser = new User({
       name,
       email,
@@ -295,9 +357,13 @@ app.post("/register", registerValidation, async (req, res, next) => {
 
     await newUser.save();
 
-    res.status(201).json({
+    return res.status(201).json({
       message: "User Registered Successfully",
-      user: { id: newUser._id, name: newUser.name, email: newUser.email },
+      user: {
+        id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+      },
     });
   } catch (error) {
     next(error);
@@ -312,6 +378,7 @@ app.post(
   ],
   async (req, res, next) => {
     const errors = validationResult(req);
+
     if (!errors.isEmpty()) {
       return res.status(400).json({
         error: "ValidationError",
@@ -331,7 +398,11 @@ app.post(
         });
       }
 
-      const isPasswordValid = await bcrypt.compare(password, user.password);
+      const isPasswordValid = await bcrypt.compare(
+        password,
+        user.password
+      );
+
       if (!isPasswordValid) {
         return res.status(401).json({
           error: "Unauthorized",
@@ -340,16 +411,24 @@ app.post(
       }
 
       const secret = process.env.JWT_SECRET || "default_jwt_secret";
+
       const token = jwt.sign(
-        { userId: user._id.toString(), email: user.email },
+        {
+          userId: user._id.toString(),
+          email: user.email,
+        },
         secret,
         { expiresIn: "24h" }
       );
 
-      res.status(200).json({
+      return res.status(200).json({
         message: "Login Successful",
         token,
-        user: { id: user._id, name: user.name, email: user.email },
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+        },
       });
     } catch (error) {
       next(error);
@@ -361,19 +440,24 @@ app.post(
 app.get("/me", requireAuth, async (req, res, next) => {
   try {
     const user = await User.findById(req.user.userId).select("-password");
+
     if (!user) {
-      return res.status(404).json({ error: "Not Found", message: "User not found" });
+      return res.status(404).json({
+        error: "Not Found",
+        message: "User not found",
+      });
     }
-    res.status(200).json(user);
+
+    return res.status(200).json(user);
   } catch (error) {
     next(error);
   }
 });
 
 // ==========================================
-// 5. 404 ROUTE HANDLER (Practical 4 Supplementary 3)
+// 5. 404 ROUTE HANDLER
 // ==========================================
-// Must be placed after all defined routes to catch undefined endpoints
+
 app.use((req, res) => {
   res.status(404).json({
     error: "NotFound",
@@ -382,18 +466,21 @@ app.use((req, res) => {
 });
 
 // ==========================================
-// 6. GLOBAL ERROR HANDLING MIDDLEWARE (Practical 4 Step 5)
+// 6. GLOBAL ERROR HANDLING
 // ==========================================
-// Central error handler must be defined as the last middleware with 4 arguments (err, req, res, next)
-app.use((err, req, res, next) => {
-  console.error("Global Error Handler caught:", err.stack || err.message || err);
 
-  // Return clean structured JSON for Mongoose validation errors (Practical 5 requirement)
+app.use((err, req, res, next) => {
+  console.error(
+    "Global Error Handler caught:",
+    err.stack || err.message || err
+  );
+
   if (err.name === "ValidationError") {
     const details = Object.keys(err.errors || {}).map((key) => ({
       field: key,
       message: err.errors[key].message,
     }));
+
     return res.status(400).json({
       error: "ValidationError",
       message: "Data validation failed",
@@ -409,7 +496,8 @@ app.use((err, req, res, next) => {
   }
 
   const status = err.statusCode || err.status || 500;
-  res.status(status).json({
+
+  return res.status(status).json({
     error: err.name || "InternalServerError",
     message: err.message || "Something went wrong on the server",
   });
@@ -418,6 +506,7 @@ app.use((err, req, res, next) => {
 // ==========================================
 // 7. START SERVER
 // ==========================================
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`API base URL: http://localhost:${PORT}`);
