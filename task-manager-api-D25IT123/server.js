@@ -14,6 +14,9 @@ const Task = require("./models/Task");
 const User = require("./models/User");
 const cache = require("./utils/cache");
 
+const taskEvents = require("./events");
+require("./listeners");
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -133,6 +136,10 @@ mongoose
 // ==========================================
 
 // Base health check
+app.get("/test-event", (req, res) => {
+  console.log("TEST EVENT ROUTE REACHED");
+  res.send("Correct server is receiving requests");
+});
 app.get("/", (req, res) => {
   res.status(200).json({
     status: "ok",
@@ -147,10 +154,20 @@ app.get("/", (req, res) => {
   });
 });
 
+// Cache Invalidation Helper (Practical 9 + Multi-user Isolation)
+const invalidateTaskCache = (userId) => {
+  cache.del("all_tasks");
+  if (userId) {
+    cache.del(`tasks_user_${userId}`);
+  }
+};
+
 // GET /tasks - Retrieve all tasks with caching
 app.get("/tasks", optionalAuth, async (req, res, next) => {
   try {
-    const cachedTasks = cache.get("all_tasks");
+    const userId = req.user && req.user.userId ? req.user.userId : null;
+    const cacheKey = userId ? `tasks_user_${userId}` : "all_tasks";
+    const cachedTasks = cache.get(cacheKey);
 
     if (cachedTasks !== undefined) {
       console.log("Cache HIT: Returning tasks from memory");
@@ -159,9 +176,15 @@ app.get("/tasks", optionalAuth, async (req, res, next) => {
 
     console.log("Cache MISS: Fetching tasks from MongoDB");
 
-    const tasks = await Task.find().sort({ createdAt: -1 });
+    // Authenticated user sees their own tasks and unassigned public tasks
+    // Unauthenticated caller sees unassigned public tasks
+    const filter = userId
+      ? { $or: [{ user: userId }, { user: null }] }
+      : { $or: [{ user: null }, { user: { $exists: false } }] };
 
-    cache.set("all_tasks", tasks);
+    const tasks = await Task.find(filter).sort({ createdAt: -1 });
+
+    cache.set(cacheKey, tasks);
 
     return res.status(200).json(tasks);
   } catch (error) {
@@ -170,7 +193,7 @@ app.get("/tasks", optionalAuth, async (req, res, next) => {
 });
 
 // GET /tasks/:id - Retrieve a single task
-app.get("/tasks/:id", validateTaskId, async (req, res, next) => {
+app.get("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) => {
   try {
     const task = await Task.findById(req.params.id);
 
@@ -178,6 +201,18 @@ app.get("/tasks/:id", validateTaskId, async (req, res, next) => {
       return res.status(404).json({
         error: "Not Found",
         message: `Task not found with ID: ${req.params.id}`,
+      });
+    }
+
+    if (
+      task.user &&
+      req.user &&
+      req.user.userId &&
+      task.user.toString() !== req.user.userId.toString()
+    ) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "You do not have permission to view this task.",
       });
     }
 
@@ -189,8 +224,9 @@ app.get("/tasks/:id", validateTaskId, async (req, res, next) => {
 
 // POST /tasks - Create a new task
 app.post("/tasks", optionalAuth, async (req, res, next) => {
+  console.log("🔥 POST /tasks ROUTE ENTERED");
   try {
-    const { title, description, completed, priority } = req.body;
+    const { title, description, completed, priority, status, dueDate } = req.body;
 
     if (!title || typeof title !== "string" || !title.trim()) {
       return res.status(400).json({
@@ -199,24 +235,52 @@ app.post("/tasks", optionalAuth, async (req, res, next) => {
       });
     }
 
+    let isCompleted = typeof completed === "boolean" ? completed : false;
+    let taskStatus = "pending";
+    if (status && ["pending", "in_progress", "completed"].includes(status)) {
+      taskStatus = status;
+      if (status === "completed") isCompleted = true;
+    } else if (isCompleted) {
+      taskStatus = "completed";
+    }
+
+    let parsedDueDate = null;
+    if (dueDate) {
+      const d = new Date(dueDate);
+      if (!isNaN(d.getTime())) {
+        parsedDueDate = d;
+      }
+    }
+
     const newTask = new Task({
       title: title.trim(),
       description: description ? description.trim() : "",
-      completed: typeof completed === "boolean" ? completed : false,
+      completed: isCompleted,
+      status: taskStatus,
       priority: ["low", "medium", "high"].includes(priority)
         ? priority
         : "medium",
+      dueDate: parsedDueDate,
+      user: req.user && req.user.userId ? req.user.userId : null,
     });
 
     const savedTask = await newTask.save();
 
     // Invalidate cache after successful creation
-    cache.del("all_tasks");
+    invalidateTaskCache(req.user?.userId);
 
-    return res.status(201).json({
-      message: "Task Added Successfully",
-      task: savedTask,
-    });
+console.log(`[API] Sending response at ${new Date().toISOString()}`);
+
+console.log("[API] Emitting task-created event");
+
+taskEvents.emit("task-created", savedTask);
+
+console.log("[API] Event emission completed");
+
+return res.status(201).json({
+  message: "Task Added Successfully",
+  task: savedTask
+});
   } catch (error) {
     next(error);
   }
@@ -225,6 +289,27 @@ app.post("/tasks", optionalAuth, async (req, res, next) => {
 // PUT /tasks/:id - Update an existing task
 app.put("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) => {
   try {
+    const existingTask = await Task.findById(req.params.id);
+
+    if (!existingTask) {
+      return res.status(404).json({
+        error: "Not Found",
+        message: `Task with ID '${req.params.id}' was not found.`,
+      });
+    }
+
+    if (
+      existingTask.user &&
+      req.user &&
+      req.user.userId &&
+      existingTask.user.toString() !== req.user.userId.toString()
+    ) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "You do not have permission to modify this task.",
+      });
+    }
+
     const updateData = {};
 
     if (req.body.title !== undefined) {
@@ -242,8 +327,19 @@ app.put("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) => {
       updateData.description = req.body.description.trim();
     }
 
-    if (req.body.completed !== undefined) {
-      updateData.completed = Boolean(req.body.completed);
+    if (req.body.status !== undefined) {
+      if (!["pending", "in_progress", "completed"].includes(req.body.status)) {
+        return res.status(400).json({
+          error: "ValidationError",
+          message: "Status must be one of: 'pending', 'in_progress', 'completed'",
+        });
+      }
+      updateData.status = req.body.status;
+      updateData.completed = req.body.status === "completed";
+    } else if (req.body.completed !== undefined) {
+      const isComp = Boolean(req.body.completed);
+      updateData.completed = isComp;
+      updateData.status = isComp ? "completed" : "pending";
     }
 
     if (req.body.priority !== undefined) {
@@ -257,24 +353,32 @@ app.put("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) => {
       updateData.priority = req.body.priority;
     }
 
+    if (req.body.dueDate !== undefined) {
+      if (req.body.dueDate === null || req.body.dueDate === "") {
+        updateData.dueDate = null;
+      } else {
+        const d = new Date(req.body.dueDate);
+        if (!isNaN(d.getTime())) {
+          updateData.dueDate = d;
+        }
+      }
+    }
+
+    if (!existingTask.user && req.user && req.user.userId) {
+      updateData.user = req.user.userId;
+    }
+
     const updatedTask = await Task.findByIdAndUpdate(
       req.params.id,
       updateData,
       {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       }
     );
 
-    if (!updatedTask) {
-      return res.status(404).json({
-        error: "Not Found",
-        message: `Task with ID '${req.params.id}' was not found.`,
-      });
-    }
-
     // Invalidate cache after successful update
-    cache.del("all_tasks");
+    invalidateTaskCache(existingTask.user?.toString() || req.user?.userId);
 
     return res.status(200).json({
       message: "Task Updated Successfully",
@@ -288,22 +392,38 @@ app.put("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) => {
 // DELETE /tasks/:id - Delete a task
 app.delete("/tasks/:id", validateTaskId, optionalAuth, async (req, res, next) => {
   try {
-    const deletedTask = await Task.findByIdAndDelete(req.params.id);
+    const existingTask = await Task.findById(req.params.id);
 
-    if (!deletedTask) {
+    if (!existingTask) {
       return res.status(404).json({
         error: "Not Found",
         message: `Task with ID '${req.params.id}' was not found.`,
       });
     }
 
-    // Invalidate cache after successful deletion
-    cache.del("all_tasks");
+    if (
+      existingTask.user &&
+      req.user &&
+      req.user.userId &&
+      existingTask.user.toString() !== req.user.userId.toString()
+    ) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "You do not have permission to delete this task.",
+      });
+    }
 
-    return res.status(200).json({
-      message: "Task Deleted Successfully",
-      task: deletedTask,
-    });
+    const deletedTask = await Task.findByIdAndDelete(req.params.id);
+
+    // Invalidate cache after successful deletion
+    invalidateTaskCache(existingTask.user?.toString() || req.user?.userId);
+
+res.status(200).json({
+  message: "Task Deleted Successfully",
+  task: deletedTask,
+});
+
+taskEvents.emit("task-deleted", deletedTask);
   } catch (error) {
     next(error);
   }
@@ -449,6 +569,61 @@ app.get("/me", requireAuth, async (req, res, next) => {
     }
 
     return res.status(200).json(user);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update user profile route (Profile & Settings)
+app.put("/me", requireAuth, async (req, res, next) => {
+  try {
+    const { name, currentPassword, newPassword } = req.body;
+    const user = await User.findById(req.user.userId);
+
+    if (!user) {
+      return res.status(404).json({
+        error: "Not Found",
+        message: "User not found",
+      });
+    }
+
+    if (name && typeof name === "string" && name.trim()) {
+      user.name = name.trim();
+    }
+
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({
+          error: "ValidationError",
+          message: "Current password is required to change password",
+        });
+      }
+      const isMatch = await bcrypt.compare(currentPassword, user.password);
+      if (!isMatch) {
+        return res.status(401).json({
+          error: "Unauthorized",
+          message: "Current password does not match",
+        });
+      }
+      if (newPassword.length < 8) {
+        return res.status(400).json({
+          error: "ValidationError",
+          message: "New password must be at least 8 characters long",
+        });
+      }
+      user.password = await bcrypt.hash(newPassword, 10);
+    }
+
+    await user.save();
+
+    return res.status(200).json({
+      message: "Profile updated successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
+    });
   } catch (error) {
     next(error);
   }
