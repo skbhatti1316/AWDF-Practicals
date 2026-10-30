@@ -172,3 +172,103 @@ Record the actual response times observed in Thunder Client.
 
 ### Conclusion
 In-memory caching was implemented successfully using NodeCache. Cache hits return previously stored task data without querying MongoDB again, while cache invalidation keeps the cached task list updated after successful task modifications. The 60-second TTL allows cached entries to expire automatically.
+
+---
+
+## 🏆 Enterprise SaaS Task Manager Upgrade (Comprehensive Practical Synthesis)
+
+### Key Enhancements & Architecture
+1. **Professional SaaS Dashboard Interface**:
+   - **Collapsible Sidebar Navigation**: Core views (Dashboard, My Tasks, Pending, Completed), Profile, Settings, and direct Practicals Hub links.
+   - **Sticky Dashboard Header**: Live greeting, dynamic current date, global search input, theme toggle, and **Add New Task** CTA.
+   - **Real-Time KPI Statistics Grid**: Displays total tasks, pending, in-progress, completed, and completion velocity percentage computed from live MongoDB data.
+   - **Multi-Status Progress Visualizer**: Multi-segment color-coded visual indicator displaying status velocity across completed (green), in-progress (blue), and pending (amber) tasks.
+2. **Triple View Layout**:
+   - **Interactive Kanban Board (`📊 Board`)**: Trello/Linear-style column layout with `To Do`, `In Progress`, and `Completed` swimlanes. Allows 1-click status advancement (`Start ➔`, `Done ✓`, `↩ Reopen`).
+   - **Interactive Card Grid (`🪟 Cards`)**: Rounded glassmorphism cards with custom animated checkboxes, priority badges, status cycle pills, due date tags (with overdue alert), and action buttons.
+   - **Responsive Data Table (`📑 Table`)**: Clean SaaS data table with column headers, status checkboxes, title/description, priority tags, status pills, timestamps, and row actions.
+3. **Advanced Filtering, Sorting & Search**:
+   - Multi-field status filtering (`all`, `pending`, `in_progress`, `completed`).
+   - Priority filtering (`high`, `medium`, `low`).
+   - Multi-option sorting (Newest, Oldest, Priority High-to-Low, Due Date Soonest, Alphabetical A-Z).
+   - Real-time client-side search across task titles and descriptions with `Ctrl+K` shortcut.
+   - Global keyboard shortcuts (`N` for New Task, `Ctrl+K` for Search, `1`/`2`/`3` for View switching).
+   - Client-side pagination with custom page buttons and page summary counters.
+4. **Data Management & Export**:
+   - **Create & Edit Task Modal**: Validates title, supports description, status, priority, and date picker for due date.
+   - **CSV Export Feature**: Instant client-side generation and download of formatted task spreadsheets.
+   - **Seed Sample Tasks**: 1-click seeding of realistic demo tasks for instant evaluation.
+   - **Accessible Confirmation Dialog**: Keyboard-accessible (`Esc` to dismiss) confirmation modal before permanently deleting documents.
+5. **Multi-User Privacy Isolation & Security**:
+   - Schema enhanced with `user` reference (`ObjectId` referencing `User`), `status`, and `dueDate`.
+   - Complete multi-user isolation: tasks belonging to an authenticated user cannot be viewed, updated, or deleted by any other user (`403 Forbidden` enforcement).
+   - Secure token storage with Bearer authorization headers and password hashing via bcryptjs.
+   - User Profile & Settings modal with name updating, password change verification, and dark/light mode toggle.
+6. **Smart In-Memory Caching (Practical 9 + User Isolation)**:
+   - Shared cache module with 60-second TTL.
+   - Cache keys scoped per authenticated user (`tasks_user_<id>`) and public requests (`all_tasks`), preventing any accidental data leakage between sessions.
+   - Immediate cache invalidation upon any task creation, update, or deletion.
+
+
+
+
+   ---
+
+## Practical 11: Containerization with Docker and Docker Compose
+
+### Aim
+To containerize a full-stack Task Manager application using Docker and Docker Compose.
+
+### Technologies Used
+- React and Vite — Frontend
+- Node.js and Express.js — Backend
+- MongoDB — Database
+- Docker — Containerization
+- Docker Compose — Multi-container orchestration
+
+### Architecture
+The application consists of three services:
+
+1. **Frontend:** React application accessible at `http://localhost:5173`.
+2. **Backend:** Express REST API accessible at `http://localhost:5000`.
+3. **MongoDB:** Database accessible locally on port `27017`.
+
+The backend connects to MongoDB through the Docker Compose service name `mongodb`. A named volume, `mongodb_data`, provides persistent database storage.
+
+### Docker Files
+- `Dockerfile` — Builds and serves the frontend.
+- `task-manager-api-D25IT123/Dockerfile` — Builds the backend API.
+- `.dockerignore` — Excludes unnecessary frontend files from the build context.
+- `task-manager-api-D25IT123/.dockerignore` — Excludes unnecessary backend files from the build context.
+- `docker-compose.yml` — Configures the frontend, backend, MongoDB, network, and database volume.
+
+### Execution Steps
+
+Start Docker Desktop and run the following command from the project root:
+
+```bash
+docker compose up --build
+```
+
+Open the frontend at `http://localhost:5173` and the backend at `http://localhost:5000`.
+
+To stop the containers, press `Ctrl+C` and run:
+
+```bash
+docker compose down
+```
+
+The named MongoDB volume preserves database data when containers are stopped or recreated. Do not remove the volume if the stored data must be retained.
+
+### Verification
+The following tests were performed:
+
+- All three Docker containers started successfully.
+- The frontend dashboard loaded in the browser.
+- The backend returned a successful API response.
+- User registration and login worked.
+- A task was created through the application.
+- The task was verified in the local MongoDB `taskmanager` database.
+
+### Conclusion
+The full-stack Task Manager application was successfully containerized using Docker and Docker Compose. The frontend, backend, and MongoDB services communicate through a shared Docker network. A named volume provides persistent database storage, and the application can be started using a single Docker Compose command.
