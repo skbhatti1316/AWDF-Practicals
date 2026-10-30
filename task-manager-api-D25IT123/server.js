@@ -122,14 +122,16 @@ const requireAuth = (req, res, next) => {
 const MONGO_URI =
   process.env.MONGO_URI || "mongodb://127.0.0.1:27017/taskmanager";
 
-mongoose
-  .connect(MONGO_URI)
-  .then(() => {
-    console.log("MongoDB connected successfully");
-  })
-  .catch((error) => {
-    console.error("MongoDB connection failed:", error.message);
-  });
+if (require.main === module) {
+  mongoose
+    .connect(MONGO_URI)
+    .then(() => {
+      console.log("MongoDB connected successfully");
+    })
+    .catch((error) => {
+      console.error("MongoDB connection failed:", error.message);
+    });
+}
 
 // ==========================================
 // 3. API ROUTES
@@ -682,7 +684,11 @@ app.use((err, req, res, next) => {
 // 7. START SERVER
 // ==========================================
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-  console.log(`API base URL: http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+    console.log(`API base URL: http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;

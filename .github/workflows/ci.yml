@@ -1,0 +1,33 @@
+name: Task Manager CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Run Backend Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: task-manager-api-D25IT123/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: task-manager-api-D25IT123
+        run: npm ci
+
+      - name: Run automated tests
+        working-directory: task-manager-api-D25IT123
+        run: npm test
