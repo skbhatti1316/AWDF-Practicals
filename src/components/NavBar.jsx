@@ -1,4 +1,3 @@
-import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 function NavBar({ theme, toggleTheme, showGuide, toggleGuide, user, onLogout }) {
@@ -11,10 +10,10 @@ function NavBar({ theme, toggleTheme, showGuide, toggleGuide, user, onLogout }) 
       <div className="navbar-container">
         {/* Brand Logo */}
         <Link to="/" className="navbar-brand">
-          <div className="brand-logo-icon">AWDF</div>
+          <div className="brand-logo-icon">TF</div>
           <div className="brand-text">
-            <span className="brand-title">FullStackHub</span>
-            <span className="brand-subtitle">D25IT123 • Siddharth</span>
+            <span className="brand-title">TaskFlow Pro</span>
+            <span className="brand-subtitle">D25IT123 • Siddharth Bhatti</span>
           </div>
         </Link>
 
@@ -22,27 +21,27 @@ function NavBar({ theme, toggleTheme, showGuide, toggleGuide, user, onLogout }) 
         <nav className="navbar-nav" aria-label="Main Navigation">
           <Link
             to="/"
-            className={`nav-link ${isActive('/') ? 'active' : ''}`}
+            className={`nav-link ${isActive('/') || isActive('/tasks') ? 'active' : ''}`}
           >
-            Home
+            ⚡ Task Manager
           </Link>
           <Link
-            to="/tasks"
-            className={`nav-link ${isActive('/tasks') ? 'active' : ''}`}
+            to="/home"
+            className={`nav-link ${isActive('/home') ? 'active' : ''}`}
           >
-            Tasks (Full-Stack)
+            📖 Course Hub
           </Link>
           <Link
             to="/projects"
             className={`nav-link ${isActive('/projects') ? 'active' : ''}`}
           >
-            GitHub Repos
+            🐙 GitHub Repos
           </Link>
           <Link
             to="/contact"
             className={`nav-link ${isActive('/contact') ? 'active' : ''}`}
           >
-            Contact
+            📬 Contact
           </Link>
         </nav>
 

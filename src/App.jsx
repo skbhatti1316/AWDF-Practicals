@@ -1,5 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { Routes, Route, Link } from 'react-router-dom';
+import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import NavBar from './components/NavBar';
 import ToastProvider from './components/Toast';
 
@@ -12,9 +12,12 @@ const Auth = lazy(() => import('./components/Auth'));
 const NotFound = lazy(() => import('./components/NotFound'));
 
 function App() {
+  const location = useLocation();
+  const isTasksDashboard = location.pathname === '/' || location.pathname === '/tasks';
+
   // Practical 2 Supplementary 2: Dark/light mode state applied to root element
   const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('awdf-theme') || 'light';
+    return localStorage.getItem('awdf-theme') || 'dark';
   });
 
   // Practical 2 State Requirement: UI element visibility toggle
@@ -59,19 +62,21 @@ function App() {
 
   return (
     <ToastProvider>
-      <div className="app-layout">
-        {/* Navigation Bar */}
-        <NavBar
-          theme={theme}
-          toggleTheme={toggleTheme}
-          showGuide={showGuide}
-          toggleGuide={() => setShowGuide(!showGuide)}
-          user={user}
-          onLogout={handleLogout}
-        />
+      <div className={`app-layout ${isTasksDashboard ? 'saas-layout-mode' : ''}`}>
+        {/* Navigation Bar (Shown on public / reference pages) */}
+        {!isTasksDashboard && (
+          <NavBar
+            theme={theme}
+            toggleTheme={toggleTheme}
+            showGuide={showGuide}
+            toggleGuide={() => setShowGuide(!showGuide)}
+            user={user}
+            onLogout={handleLogout}
+          />
+        )}
 
         {/* Quick Guide Drawer (Practical 2 UI Visibility Toggle) */}
-        {showGuide && (
+        {showGuide && !isTasksDashboard && (
           <aside className="quick-guide-banner animate-slide-down" aria-label="Course Guide">
             <div className="guide-content-wrap">
               <div className="guide-header">
@@ -95,8 +100,8 @@ function App() {
                   <p>Explore <Link to="/projects">GitHub Repositories</Link> fetching live data with loading spinner, error boundary, retry triggers, and instant search.</p>
                 </div>
                 <div className="guide-col">
-                  <strong>Practical 4, 5 & 6: Full Stack Integration</strong>
-                  <p>Interactive <Link to="/tasks">Task Manager</Link> wired to Express (port 5000) and MongoDB Atlas with optimistic updates and delete confirmation dialogs.</p>
+                  <strong>Practical 4, 5, 6 & 9: Full Stack Integration & Caching</strong>
+                  <p>Interactive <Link to="/">Task Manager</Link> wired to Express (port 5000) and MongoDB Atlas with optimistic updates, delete confirmation dialogs, and 60s in-memory query caching.</p>
                 </div>
               </div>
             </div>
@@ -104,7 +109,7 @@ function App() {
         )}
 
         {/* Main Content Area with Suspense Fallback */}
-        <main className="app-main">
+        <main className={`app-main ${isTasksDashboard ? 'main-saas-dashboard' : ''}`}>
           <Suspense
             fallback={
               <div className="page-loading-skeleton" role="status">
@@ -114,11 +119,37 @@ function App() {
             }
           >
             <Routes>
-              {/* Home Route (Practical 1 & 2) */}
-              <Route path="/" element={<Home />} />
+              {/* Primary SaaS Task Manager Route */}
+              <Route
+                path="/"
+                element={
+                  <Projects
+                    user={user}
+                    onLogout={handleLogout}
+                    theme={theme}
+                    toggleTheme={toggleTheme}
+                    onUpdateUser={handleLogin}
+                  />
+                }
+              />
 
-              {/* Tasks CRUD Route (Practical 4, 5, 6) */}
-              <Route path="/tasks" element={<Projects />} />
+              {/* Tasks Alias Route (Practical 4, 5, 6, 7, 9) */}
+              <Route
+                path="/tasks"
+                element={
+                  <Projects
+                    user={user}
+                    onLogout={handleLogout}
+                    theme={theme}
+                    toggleTheme={toggleTheme}
+                    onUpdateUser={handleLogin}
+                  />
+                }
+              />
+
+              {/* Course Home & Practicals Hub Route */}
+              <Route path="/home" element={<Home />} />
+              <Route path="/practicals" element={<Home />} />
 
               {/* GitHub Repositories Route (Practical 3 REST API Integration) */}
               <Route path="/projects" element={<GithubProjects />} />
@@ -135,26 +166,28 @@ function App() {
           </Suspense>
         </main>
 
-        {/* Global Footer */}
-        <footer className="app-footer">
-          <div className="footer-container">
-            <p className="footer-copy">
-              © {new Date().getFullYear()} <strong>Siddharth Kalpeshkumar Bhatti</strong> (D25IT123) • B.Tech Information Technology
-            </p>
-            <p className="footer-institution">
-              Advanced Web Development Frameworks (ITUE301) • CSPIT / DEPSTAR, CHARUSAT University
-            </p>
-            <div className="footer-links">
-              <Link to="/">Home</Link>
-              <span>•</span>
-              <Link to="/tasks">Tasks</Link>
-              <span>•</span>
-              <Link to="/projects">GitHub API</Link>
-              <span>•</span>
-              <Link to="/contact">Contact</Link>
+        {/* Global Footer (Shown on public pages) */}
+        {!isTasksDashboard && (
+          <footer className="app-footer">
+            <div className="footer-container">
+              <p className="footer-copy">
+                © {new Date().getFullYear()} <strong>Siddharth Kalpeshkumar Bhatti</strong> (D25IT123) • B.Tech Information Technology
+              </p>
+              <p className="footer-institution">
+                Advanced Web Development Frameworks (ITUE301) • CSPIT / DEPSTAR, CHARUSAT University
+              </p>
+              <div className="footer-links">
+                <Link to="/">Task Manager</Link>
+                <span>•</span>
+                <Link to="/home">Course Hub</Link>
+                <span>•</span>
+                <Link to="/projects">GitHub API</Link>
+                <span>•</span>
+                <Link to="/contact">Contact</Link>
+              </div>
             </div>
-          </div>
-        </footer>
+          </footer>
+        )}
       </div>
     </ToastProvider>
   );

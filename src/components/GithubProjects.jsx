@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Loading from './Loading';
 import ErrorMessage from './ErrorMessage';
 import { fetchGithubRepos } from '../api';
@@ -26,8 +26,24 @@ function GithubProjects() {
   }, [username]);
 
   useEffect(() => {
-    loadRepositories(simulateError);
-  }, [loadRepositories, simulateError]);
+    let isMounted = true;
+    fetchGithubRepos(username, simulateError)
+      .then((data) => {
+        if (isMounted) {
+          setRepos(Array.isArray(data) ? data : []);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setError(err.message || 'Failed to fetch repositories.');
+          setLoading(false);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [username, simulateError]);
 
   const handleRetry = () => {
     setSimulateError(false);

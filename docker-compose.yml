@@ -20,8 +20,10 @@ services:
     container_name: taskmanager-backend
     ports:
       - "5000:5000"
+    env_file:
+      - ./task-manager-api-D25IT123/.env
     environment:
-      PORT: 5000
+      PORT: "5000"
       MONGO_URI: mongodb://mongodb:27017/taskmanager
       JWT_SECRET: ${JWT_SECRET:-docker_practical_secret_change_me}
     depends_on:

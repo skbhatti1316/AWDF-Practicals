@@ -6,6 +6,12 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 require("dotenv").config();
 
+const { GoogleGenAI } = require("@google/genai");
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+});
+
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { body, validationResult } = require("express-validator");
@@ -632,6 +638,77 @@ app.put("/me", requireAuth, async (req, res, next) => {
 });
 
 // ==========================================
+// AI TASK DESCRIPTION GENERATOR
+// Practical 13
+// ==========================================
+
+app.post("/api/ai/generate-description", async (req, res) => {
+  try {
+    const { title } = req.body;
+
+    // Validate task title
+    if (!title || typeof title !== "string" || !title.trim()) {
+      return res.status(400).json({
+        description: "",
+        fallback: true,
+        message: "Please enter a valid task title.",
+      });
+    }
+
+    // Check whether the API key is configured
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(200).json({
+        description: "",
+        fallback: true,
+        message:
+          "AI suggestions are currently unavailable. Please write your description manually.",
+      });
+    }
+
+    // Generate a task description using Gemini
+const response = await Promise.race([
+  ai.models.generateContent({
+    model: "gemini-3.5-flash-lite",
+    contents: `Write a clear, concise task description in 2-3 sentences for this task: ${title.trim()}. Do not invent dates or claim the task has been completed.`,
+  }),
+new Promise((_, reject) =>
+  setTimeout(
+    () => reject(new Error("AI request timed out after 60 seconds.")),
+    60000
+  ),
+),
+]);
+
+    const description = response.text?.trim();
+
+    if (!description) {
+      throw new Error("The AI returned an empty description.");
+    }
+
+    return res.status(200).json({
+      description,
+      fallback: false,
+      message:
+        "AI-generated suggestion. Please review and edit it before saving.",
+    });
+  } catch (error) {
+    console.error(
+      "AI description generation failed:",
+      error.message
+    );
+
+    // Graceful fallback if the AI service fails
+    return res.status(200).json({
+      description: "",
+      fallback: true,
+      message:
+        "AI suggestions are temporarily unavailable. Please write your description manually.",
+    });
+  }
+});
+
+
+// ==========================================
 // 5. 404 ROUTE HANDLER
 // ==========================================
 
@@ -679,6 +756,7 @@ app.use((err, req, res, next) => {
     message: err.message || "Something went wrong on the server",
   });
 });
+
 
 // ==========================================
 // 7. START SERVER

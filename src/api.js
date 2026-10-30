@@ -114,6 +114,23 @@ export const registerUser = async (userData) => {
   return handleResponse(res);
 };
 
+export const getProfile = async () => {
+  const res = await fetch(`${BASE_URL}/me`, {
+    method: 'GET',
+    headers: getHeaders(false),
+  });
+  return handleResponse(res);
+};
+
+export const updateProfile = async (profileData) => {
+  const res = await fetch(`${BASE_URL}/me`, {
+    method: 'PUT',
+    headers: getHeaders(true),
+    body: JSON.stringify(profileData),
+  });
+  return handleResponse(res);
+};
+
 // ==========================================
 // GITHUB REST API ENDPOINT (Practical 3)
 // ==========================================
